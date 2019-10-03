@@ -1,0 +1,487 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<title>reveal.js</title>
+
+		<link rel="stylesheet" href="css/reset.css">
+		<link rel="stylesheet" href="css/reveal.css">
+		<link rel="stylesheet" href="css/theme/black.css">
+
+		<!-- Theme used for syntax highlighting of code -->
+		<link rel="stylesheet" href="lib/css/monokai.css">
+
+		<!-- Printing and PDF exports -->
+		<script>
+			var link = document.createElement( 'link' );
+			link.rel = 'stylesheet';
+			link.type = 'text/css';
+			link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
+			document.getElementsByTagName( 'head' )[0].appendChild( link );
+		</script>
+	</head>
+	<body>
+		<div class="reveal">
+			<div class="slides">
+				<section>
+					<h2>Anatomy of an X-GRIN Back End</h2>
+					Andor Penzes
+				</section>
+				<section data-markdown>
+					<textarea data-template>
+						## Urban Boquist's Thesis
+
+						 * Simple C like language: GRIN
+						 * Lazy computation via explicit HEAP objects
+						 * Program transformations based on whole program analysis
+						 * Lambda calculus like language: Lambda
+						 * Translation from Lambda to GRIN
+					</textarea>
+				</section>
+				<section data-markdown>
+					<textarea data-template>
+						## GRIN project
+
+						* Our goal is to write a unified compiler back end for lazy and non-lazy functional programming
+						  languages.
+						* We actively develop two GRIN back ends, one for GHC and the Idris. Meanwhile we
+						  implement the GRIN-compiler. After finishing the Idris we start to work
+						  on the Agda GRIN back end.
+					</textarea>
+				</section>
+				<section>
+					<h2>Compiler pipelines</h2>
+					<section>
+						<h3>GHC</h3>
+						<img data-src="ghc-pipeline.png" height="70%">
+					</section>
+					<section>
+						<h3>Idris</h3>
+						<img data-src="idris-pipeline.png" height="600">
+					</section>
+				</section>
+				<section>
+					<h2>Syntax</h2>
+					<section>
+						<h3>Lambda</h3>
+						<pre class="definition"><code class="Haskell">
+data Exp
+  = Program     [External] [Def]
+  | Def         Name [Name] Exp
+
+  | App         Name [Atom]
+  | Let         [(Name, Exp)] Exp -- lazy let
+  | LetRec      [(Name, Exp)] Exp -- recursive lazy let
+  | LetS        [(Name, Exp)] Exp -- strict let
+  | Con         Name [Atom]
+
+  | Case        Atom [Alt]
+  | Alt         Pat Exp
+
+  | Var         Bool Name -- is pointer
+  | Lit         Lit
+
+  | Closure     [Name] [Name] Exp
+						</code></strech></pre>
+					</section>
+					<section>
+						<h3>GRIN</h3>
+						<pre class="definition"><code class="Haskell">
+data Exp
+  = Program     [External] [Def]
+  | Def         Name [Name] Exp
+  -- Exp
+  | EBind       SimpleExp LPat Exp
+  | ECase       Val [Alt]
+  -- Simple Exp
+  | SApp        Name [SimpleVal]
+  | SReturn     Val
+  | SStore      Val
+  | SFetch      Name
+  | SUpdate     Name Val
+  | SBlock      Exp
+  -- Alt
+  | Alt CPat Exp
+						</code></strech></pre>
+					</section>
+				</section>
+				<section>
+					<section>
+						<h2>GRIN project</h2>
+						<ul>
+							<li>GRIN compiler</li>
+							<li>GHC-GRIN backend</li>
+							<li>Idris-GRIN backend</li>
+						</ul>
+					</section>
+					<section>
+						<h2>GHC-GRIN backend</h2>
+						<ul>
+							<li>Compiles STG to Lambda</li>
+							<li>Generates GRIN from Lambda</li>
+						</ul>
+						<div class="fragment"><p>Challenge:</p>
+							<ul>
+								<li>The size of the GHC hello world is large</li>
+								<li>The whole program analysis described in PhD thesis is not powerful enough</li>
+							</ul>
+						</div>
+						<div class="fragment"><p>Ongoing work:</p>
+							<ul>
+								<li>Abstract interpretation of STG using Suffle (https://souffle-lang.github.io/)</li>
+								<li>Interprocedural dead-code elimination on STG level</li>
+								<li>Improved GRIN code generation based on Abstract Interpretation</li>
+							</ul>
+						</div>
+					</section>
+					<section>
+						<h2>Idris-GRIN backend</h2>
+						<ul>
+							<li>End-to-end testing for the GRIN compiler</li>
+							<li class="fragment">More fun learning Idris than writing test-case programs in GRIN</li>
+							<li class="fragment">The implementation is based on examples of the TDDI book</li>
+							<li class="fragment">Consumes the simplest Idris IR</li>
+							<li class="fragment">Introduce challenges like FFI, runtime, and garbage collection</li>
+						</ul>
+					</section>
+					<section data-markdown>
+						<textarea data-template>
+							## Why develop three things at the same time?
+
+							* Pragmatic
+							* An Incremental Approach to Compiler Construction [1]
+							* Restrictions, requirements, and test cases are created based on real compilers
+
+							<sub><sub>[1] http://scheme2006.cs.uchicago.edu/11-ghuloum.pdf</sub></sub>
+						</textarea>
+					</section>
+				</section>
+				<section>
+					<section data-markdown>
+						<textarea data-template>
+							# Idris-GRIN backend
+
+							* Standalone executable which is invoked by the Idris compiler via the --codegen option
+							* GRIN code generation from Simplified SDecl
+							* Glue code between Idris-GRIN and C
+							* Primitive operations implemented in C
+							* Simple Runtime in C which needs a lot of improvements
+
+						</textarea>
+					</section>
+					<section>
+						<pre class="stretch"><code class="Haskell">
+exp fname = \case
+  SOp f lvars                           -> primFn f (map (Var . lvar fname) lvars)
+  scon@(SCon maybeLVar int name lvars) 	-> SReturn $ val fname scon
+  sconst@(SConst cnst)                  -> SReturn $ val fname sconst
+
+  Idris.SApp bool nm lvars -> Grin.SApp (name nm) (map (Var . lvar fname) lvars)
+
+  SLet loc0@(Idris.Loc i) v sc ->
+    EBind (SBlock (exp fname v)) ((localName fname loc0) ++ "_val") $
+    EBind (SStore (localName fname loc0) ++ "_val") (localName fname loc0) $
+    (exp fname sc)
+
+  Idris.SUpdate loc0 exp0 ->
+    EBind (SBlock (exp fname exp0)) (localName fname loc0 ++ "_val") $
+    EBind (Grin.SUpdate (loc fname loc0)) (localName fname loc0) ++ "_val") Unit $
+    SReturn localName fname loc0) ++ "_val")
+
+  SCase caseType lvar0 salts ->
+    EBind (SFetch (lvar fname lvar0)) (varName fname lvar0) ++ "_val")) $
+    ECase (varName fname lvar0) ++ "_val") (alts fname salts)
+
+  SChkCase lvar0 salts ->
+    EBind (SFetch $ varName fname lvar0)
+    			(varName fname lvar0 ++ "_val") $
+    ECase (vanName fname lvar0) ++ "_val") (alts fname salts)
+
+  SV lvar0@(Idris.Loc i)  -> SFetch (localName fname lvar0)
+  SV lvar0@(Idris.Glob n) -> Grin.SApp (varName fname lvar0) []
+						</code></strech></pre>
+					</section>
+					<section>
+						<p>GRIN code generation from Simplified SDecl</p>
+						<pre class="stretch"><code class="Haskell">
+primFn :: Idris.PrimFn -> [SimpleVal] -> Exp
+primFn f ps = case f of
+  LPlus   (Idris.ATInt intTy) -> Grin.SApp "idris_int_add" ps
+  LPlus   Idris.ATFloat       -> Grin.SApp "idris_float_add" ps
+  LMinus  (Idris.ATInt intTy) -> Grin.SApp "idris_int_sub" ps
+  LMinus  Idris.ATFloat       -> Grin.SApp "idris_float_sub" ps
+  LTimes  (Idris.ATInt intTy) -> Grin.SApp "idris_int_mul" ps
+  LTimes  Idris.ATFloat       -> Grin.SApp "idris_float_mul" ps
+  LSDiv   (Idris.ATInt intTy) -> Grin.SApp "idris_int_div" ps
+  LSDiv   Idris.ATFloat       -> Grin.SApp "idris_float_div" ps
+  ...
+						</code></strech></pre>
+					</section>
+					<section>
+						<p>Glue code between Idris-GRIN and C (1)</p>
+						<pre class="stretch"><code class="Haskell">
+idris_int_eq idris_int_eq0 idris_int_eq1 =
+  (CGrInt idris_int_eq0_1) <- fetch idris_int_eq0
+  (CGrInt idris_int_eq1_1) <- fetch idris_int_eq1
+  idris_int_eq2 <- _prim_int_eq idris_int_eq0_1 idris_int_eq1_1
+  case idris_int_eq2 of
+    #False  -> pure (CGrInt 0)
+    #True   -> pure (CGrInt 1)
+
+idris_float_eq idris_float_eq0 idris_float_eq1 =
+  (CGrFloat idris_float_eq0_1) <- fetch idris_float_eq0
+  (CGrFloat idris_float_eq1_1) <- fetch idris_float_eq1
+  idris_float_eq2 <- _prim_float_eq idris_float_eq0_1 idris_float_eq1_1
+  case idris_float_eq2 of
+    #False  -> pure (CGrInt 0)
+    #True   -> pure (CGrInt 1)
+
+idris_write_str idris_write_str1 idris_write_str2 =
+  (CGrString idris_write_str2_0) <- fetch idris_write_str2
+  _prim_string_print idris_write_str2_0
+  pure (CUnit)
+
+idris_time =
+  idris_time1 <- _prim_time
+  pure (CGrInt idris_time1)
+ 						</code></strech></pre>
+					</section>
+					<section>
+						<p>Glue code between Idris-GRIN and C (2)</p>
+						<pre class="stretch"><code class="Haskell">
+primop pure
+  _prim_int_eq    :: T_Int64 -> T_Int64 -> T_Bool
+  _prim_int_add   :: T_Int64 -> T_Int64 -> T_Int64
+  _prim_int_sub   :: T_Int64 -> T_Int64 -> T_Int64
+  _prim_int_mul   :: T_Int64 -> T_Int64 -> T_Int64
+  _prim_int_div   :: T_Int64 -> T_Int64 -> T_Int64
+
+  _prim_float_eq  :: T_Float -> T_Float -> T_Bool
+  _prim_float_add :: T_Float -> T_Float -> T_Float
+  _prim_float_sub :: T_Float -> T_Float -> T_Float
+  _prim_float_mul :: T_Float -> T_Float -> T_Float
+  _prim_float_div :: T_Float -> T_Float -> T_Float
+
+primop effectful
+  _prim_string_print  :: T_String -> T_Unit
+  _prim_usleep        :: T_Int64 -> T_Unit
+  _prim_time          :: T_Int64
+ 						</code></strech></pre>
+					</section>
+					<section>
+						<p>Primitive operations implemented in C</p>
+						<pre class="stretch"><code class="C">
+void _prim_string_print(struct string* p1){
+    for(int i = 0; i < p1->length; i++) {
+        putchar(p1->data[i]);
+    }
+}
+
+void _prim_usleep(int64_t p1) {
+    usleep(p1); // p1 microseconds
+}
+
+int64_t _prim_time() {
+    time_t t = time(NULL);
+    return (int64_t)t;
+}
+ 						</code></strech></pre>
+					</section>
+					<section>
+						<p>Simple Runtime in C which needs a lot of improvements</p>
+						<pre class="stretch"><code class="C">
+extern int64_t _heap_ptr_;
+int64_t grinMain();
+
+void __runtime_error(int64_t code){
+  exit(code);
+}
+
+int main() {
+  int64_t* heap = malloc(100*1024*1024);
+  _heap_ptr_ = (int64_t)heap;
+  grinMain();
+  free(heap);
+  return 0;
+}
+ 						</code></strech></pre>
+					</section>
+				</section>
+				<section>
+					<section>
+						<h2>Hello World in Idris-GRIN</h2>
+						<ul>
+							<li>Idris</li>
+							<li>Compiled GRIN</li>
+							<li>Optimised GRIN</li>
+						</ul>
+					</section>
+					<section>
+						<p>Hello World - Idris</p>
+						<pre><code class="Idris">
+module Main
+
+main : IO ()
+main = putStrLn "Hello World!"
+						</code></strech></pre>
+					</section>
+					<section>
+						<pre class="stretch"><code class="Haskell">
+grinMain =
+  r <- idr_{runMain_0}
+  pure ()
+
+idr_{runMain_0} =
+  v.3 <- pure (CErased)
+  idr_{runMain_0}0_val_5 <- pure v.3
+  idr_{runMain_0}0 <- store idr_{runMain_0}0_val_5
+  idr_{runMain_0}0_val <- idr_Main.main idr_{runMain_0}0
+  idr_{runMain_0}0_6 <- store idr_{runMain_0}0_val
+  idr_{EVAL_0} idr_{runMain_0}0_6
+
+idr_{EVAL_0} idr_{EVAL_0}0 =
+  idr_{EVAL_0}0_val <- fetch idr_{EVAL_0}0
+  fetch idr_{EVAL_0}0
+
+idr_Main.main idr_Main.main0 =
+  v.1 <- pure (CGrString #"Hello World!\n")
+  idr_Main.main1_val_3 <- pure v.1
+  idr_Main.main1 <- store idr_Main.main1_val_3
+  idr_Main.main1_val <- idris_write_str idr_Main.main0 idr_Main.main1
+  idr_Main.main1_4 <- store idr_Main.main1_val
+  pure (Cidr_MkUnit)
+
+idris_write_str idris_write_str1 idris_write_str2 =
+  (CGrString idris_write_str2_0) <- fetch idris_write_str2
+  _prim_string_print $ idris_write_str2_0
+  pure (CUnit)
+  					</code></strech></pre>
+					</section>
+					<section>
+						<p>Hello World - GRIN optimised</p>
+						<pre class="definition"><code class="Haskell">
+grinMain =
+  idr_Main.main1.33.0.arity.1.0 <- pure #"Hello World!\n"
+  _prim_string_print idr_Main.main1.33.0.arity.1.0
+						</code></strech></pre>
+					</section>
+				</section>
+				<section>
+						<h2>Preliminary results</h2>
+						<pre class="strech"><code class="C">
+  60416 01_Average.idr.bin
+  13704 01_Average.idr.grin.bin
+
+ 136384 01_DataTypes.idr.bin
+  28960 01_DataTypes.idr.grin.bin
+
+  55728 01_ExactLength.idr.bin
+  11320 01_ExactLength.idr.grin.bin
+
+  85640 01_Exercises.idr.bin
+  15664 01_Exercises.idr.grin.bin
+
+  27328 01_HelloWorld.idr.bin
+   9776 01_HelloWorld.idr.grin.bin
+
+  99912 01_Inf.idr.bin
+  24760 01_Inf.idr.grin.bin
+
+ 107832 01_Interfaces.idr.bin
+  25048 01_Interfaces.idr.grin.bin
+
+ 150368 01_IOIntro.idr.bin
+  25136 01_IOIntro.idr.grin.bin
+
+  95440 01_Matrix.idr.bin
+  19728 01_Matrix.idr.grin.bin
+
+  61744 01_RemoveElem.idr.bin
+  13688 01_RemoveElem.idr.grin.bin
+
+  45848 01_ShiftTest.idr.bin
+  11464 01_ShiftTest.idr.grin.bin
+
+  47456 01_SumSimple.idr.bin
+  11248 01_SumSimple.idr.grin.bin
+
+ 137648 01_TypeLevelFuns.idr.bin
+  34192 01_TypeLevelFuns.idr.grin.bin
+
+  74176 01_View.idr.bin
+  17008 01_View.idr.grin.bin
+
+  72016 02_Average.idr.bin
+  13920 02_Average.idr.grin.bin
+
+  30648 02_CalcType.idr.bin
+   9856 02_CalcType.idr.grin.bin
+
+ 141920 02_Exercises.idr.bin
+  24608 02_Exercises.idr.grin.bin
+
+  93968 02_Expr.idr.bin
+  15656 02_Expr.idr.grin.bin
+
+ 243312 02_Game.idr.bin
+  32136 02_Game.idr.grin.bin
+
+  40256 02_InfiniteProcesses.idr.bin
+  11264 02_InfiniteProcesses.idr.grin.bin
+
+  90112 02_RecursiveViews.idr.bin
+  19560 02_RecursiveViews.idr.grin.bin
+
+  78176 02_Reverse.idr.bin
+  15536 02_Reverse.idr.grin.bin
+
+  85736 02_TotalArithQuizTest.idr.bin
+  18568 02_TotalArithQuizTest.idr.grin.bin
+
+ 124080 03_ArithCmdDoTest.idr.bin
+  27888 03_ArithCmdDoTest.idr.grin.bin
+
+ 124072 03_ArithCmdTest.idr.bin
+  27888 03_ArithCmdTest.idr.grin.bin
+
+ 128864 03_ExerciseTest.idr.bin
+  19872 03_ExerciseTest.idr.grin.bin
+
+  40672 03_Prelude.idr.bin
+  10088 03_Prelude.idr.grin.bin
+						</code></strech></pre>
+				</section>
+				<section>
+					<h1>Questions?</h1>
+					<ul>
+						<li>https://github.com/grin-compiler/grin</li>
+						<li>https://github.com/grin-compiler/idris-grin</li>
+						<li>https://github.com/grin-compiler/ghc-grin</li>
+						<li>https://www.patreon.com/csaba_hruska</li>
+					</ul>
+				</section>
+			</div>
+		</div>
+
+		<script src="js/reveal.js"></script>
+
+		<script>
+			// More info about config & dependencies:
+			// - https://github.com/hakimel/reveal.js#configuration
+			// - https://github.com/hakimel/reveal.js#dependencies
+			Reveal.initialize({
+				width: 1600,
+				height: 900,
+				dependencies: [
+					{ src: 'plugin/markdown/marked.js' },
+					{ src: 'plugin/markdown/markdown.js' },
+					{ src: 'plugin/notes/notes.js', async: true },
+					{ src: 'plugin/highlight/highlight.js', async: true },
+					{ src: 'plugin/zoom-js/zoom.js', async: true }
+				]
+			});
+		</script>
+	</body>
+</html>
